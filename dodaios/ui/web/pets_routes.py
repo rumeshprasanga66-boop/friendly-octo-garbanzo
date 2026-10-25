@@ -11,6 +11,7 @@ Endpoints (mounted by the WebServer in ``_build_app()``):
     PUT    /api/pets/settings          → size, status bubble, always-on strip; saved, applied.
     POST   /api/pets/visibility        → hide / show the pet (this run only).
     POST   /api/pets                   → create a pet from an uploaded sheet.
+    POST   /api/pets/from-photo        → build a pet from an authorised photo.
     DELETE /api/pets/{id}              → delete a user-created pet.
 
 Under the CLI-first contract every action here is also a
@@ -522,6 +523,70 @@ async def create_pet(
     except PetManifestError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     log.info("Pet %r created (%s).", created.id, created.name)
+    return _pet_json(created)
+
+
+@router.post("/from-photo", status_code=201)
+async def create_pet_from_photo(
+    photo: UploadFile = File(...),  # noqa: B008 — FastAPI dependency default
+    name: str = Form(""),
+    description: str = Form(""),
+) -> dict[str, Any]:
+    """Build a companion pack from an authorised photo and install it.
+
+    The photo never leaves this machine: it is cropped and drawn into a
+    ``jarvis-pet/1`` sheet in memory, then handed to the SAME
+    :meth:`PetStore.add` the sheet upload uses, so every manifest and cell
+    rule is enforced by the store rather than restated here.
+
+    The result is a stylised portrait whose mouth follows the voice level.
+    It is NOT a photoreal talking head — see ``docs/avatar.md``.
+    """
+    from dodaios.avatar.portrait import build_portrait_pack
+    from dodaios.ui.pets import loader
+    from dodaios.ui.pets.manifest import PetManifestError
+    from dodaios.ui.pets.store import PetStore
+
+    # A source photo is larger than a finished sheet, so the ceiling is the
+    # request cap rather than MAX_SHEET_BYTES: the BUILT sheet is what the
+    # store checks against its own 2 MB / 512 px limits.
+    data = await photo.read(MAX_REQUEST_BYTES + 1)
+    if len(data) > MAX_REQUEST_BYTES:
+        raise HTTPException(status_code=413, detail=_TOO_LARGE)
+
+    def _build() -> tuple[bytes, str]:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as scratch:
+            source = Path(scratch) / "photo"
+            source.write_bytes(data)
+            result = build_portrait_pack(source, Path(scratch) / "pack")
+            return (
+                result.sheet_path.read_bytes(),
+                result.manifest_path.read_text(encoding="utf-8"),
+            )
+
+    try:
+        sheet_bytes, manifest_json = await asyncio.to_thread(_build)
+    except (ValueError, OSError) as exc:
+        # ValueError: the builder's own readable refusals ("the photo is too
+        # small ..."). OSError: Pillow's UnidentifiedImageError for a file
+        # that is not an image at all — a bad upload, not a server fault, so
+        # it must be a 400 rather than an unhandled 500.
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    store = PetStore(loader.custom_root())
+    try:
+        created = await asyncio.to_thread(
+            store.add,
+            sheet_bytes=sheet_bytes,
+            name=name or "My portrait",
+            description=description or "A stylised portrait whose mouth follows my voice.",
+            manifest_json=manifest_json,
+        )
+    except PetManifestError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    log.info("Pet %r created from a photo.", created.id)
     return _pet_json(created)
 
 

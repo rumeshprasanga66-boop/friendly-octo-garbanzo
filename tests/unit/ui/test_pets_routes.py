@@ -445,3 +445,81 @@ def test_delete_is_flagged_dangerous_for_the_cli(env) -> None:
     operation = spec["paths"]["/api/pets/{pet_id}"]["delete"]
     assert operation.get("x-jarvis-dangerous") is True
     assert operation["tags"] == ["pets"]
+
+
+# ---------------------------------------------------------------------------
+# POST /from-photo — build a companion from an authorised photo
+# ---------------------------------------------------------------------------
+
+
+def _photo_png(width: int = 600, height: int = 800) -> bytes:
+    """A stand-in for the owner's photograph (a plain portrait-shaped image)."""
+    image = Image.new("RGB", (width, height), (180, 150, 130))
+    out = io.BytesIO()
+    image.save(out, "PNG")
+    return out.getvalue()
+
+
+def _upload_photo(env: SimpleNamespace, photo: bytes | None = None, **fields: str) -> Any:
+    data = {"name": "My portrait", "description": "From my photo."}
+    data.update(fields)
+    return env.client.post(
+        "/api/pets/from-photo",
+        files={"photo": ("me.png", photo if photo is not None else _photo_png(), "image/png")},
+        data=data,
+    )
+
+
+def test_photo_builds_a_pet_the_store_accepts(env) -> None:
+    r = _upload_photo(env)
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["builtin"] is False
+    assert body["name"] == "My portrait"
+    assert body["frame_size"] == 48
+    # Every state resolves, and the talking row is the one the renderer drives
+    # from the live speech level.
+    assert set(body["animations"]) == set(PET_STATES)
+    assert body["animations"]["talking"]["frames"] == 4
+    assert body["animations"]["talking"]["row"] != body["animations"]["idle"]["row"]
+
+
+def test_photo_pet_loads_through_the_real_loader(env) -> None:
+    body = _upload_photo(env).json()
+    pack = loader.load_pet_by_id(body["id"], data_dir=env.data)
+    assert pack is not None
+    assert pack.manifest.frame_size == 48
+    assert len(pack.frames["talking"]) == 4
+    assert len(pack.frames["idle"]) == 8
+
+
+def test_photo_pet_is_served_as_a_sheet(env) -> None:
+    body = _upload_photo(env).json()
+    r = env.client.get(body["sheet_url"])
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "image/png"
+
+
+def test_a_file_that_is_not_an_image_is_a_400_not_a_500(env) -> None:
+    r = _upload_photo(env, photo=b"this is not a png")
+    assert r.status_code == 400
+
+
+def test_a_photo_too_small_for_a_frame_is_refused(env) -> None:
+    # The builder needs at least one 48 px frame after cropping.
+    r = _upload_photo(env, photo=_photo_png(20, 20))
+    assert r.status_code == 400
+
+
+def test_an_oversized_photo_is_refused_before_it_is_decoded(env) -> None:
+    oversized = b"\x89PNG\r\n\x1a\n" + b"\x00" * (MAX_REQUEST_BYTES + 1)
+    r = _upload_photo(env, photo=oversized)
+    assert r.status_code == 413
+
+
+def test_the_photo_route_is_not_flagged_dangerous(env) -> None:
+    """It creates a pet, like the sheet upload, so the CLI must not gate it."""
+    operation = env.app.openapi()["paths"]["/api/pets/from-photo"]["post"]
+    assert operation.get("x-jarvis-dangerous") is None
+    assert operation["tags"] == ["pets"]
+
