@@ -500,6 +500,16 @@ def test_photo_pet_is_served_as_a_sheet(env) -> None:
     assert r.headers["content-type"] == "image/png"
 
 
+def test_photo_pet_lists_like_a_sheet_upload(env) -> None:
+    """The UI invalidates one query for both routes, so both must list."""
+    pet = _upload_photo(env).json()
+    assert pet["id"].startswith("u") and len(pet["id"]) == 17
+    assert pet["sheet_url"] == f"/api/pets/{pet['id']}/sheet.png"
+
+    ids = [p["id"] for p in env.client.get("/api/pets").json()["pets"]]
+    assert pet["id"] in ids
+
+
 def test_a_file_that_is_not_an_image_is_a_400_not_a_500(env) -> None:
     r = _upload_photo(env, photo=b"this is not a png")
     assert r.status_code == 400
