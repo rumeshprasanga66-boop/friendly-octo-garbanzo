@@ -52,6 +52,7 @@ from dodaios.core.registry import list_all_plugins
 from dodaios.terminal import PtyManager, discover_shells, get_shell
 
 from .fast_bootstrap import ASSET_SUFFIXES
+from .rate_limit import RateLimitMiddleware
 from .schema import (
     WSAudioLevel,
     WSCommand,
@@ -398,6 +399,22 @@ class WebServer:
             SurfaceSecurity,
             vite_dev_url=vite_dev_url,
             public_urls=public_urls,
+        )
+
+        # Rate limiting (docs/rate-limiting.md). Added AFTER SurfaceSecurity so
+        # the security boundary is the outer layer: a request that fails the
+        # Host/Origin check is rejected before it can consume a rate-limit
+        # token, and a hostile client cannot use 429s to probe the boundary.
+        # The limits protect this machine from local runaway clients, not from
+        # the network — see the module docstring for that distinction.
+        app.add_middleware(
+            RateLimitMiddleware,
+            enabled=bool(getattr(self.cfg.ui, "rate_limit_enabled", True)),
+            per_minute={
+                "read": int(getattr(self.cfg.ui, "rate_limit_read_per_minute", 600)),
+                "write": int(getattr(self.cfg.ui, "rate_limit_write_per_minute", 120)),
+                "expensive": int(getattr(self.cfg.ui, "rate_limit_expensive_per_minute", 30)),
+            },
         )
 
         self._register_rest_routes(app)

@@ -304,7 +304,7 @@ _OTHER_TAG_TO_CODE: dict[str, str] = {
     "rus": "ru", "ukr": "uk", "ell": "el", "gre": "el", "ara": "ar", "fas": "fa",
     "per": "fa", "heb": "he", "hin": "hi", "tha": "th", "jpn": "ja", "kor": "ko",
     "zho": "zh", "chi": "zh", "vie": "vi", "mandarin": "zh", "cantonese": "zh",
-    "farsi": "fa",
+    "farsi": "fa", "sin": "si", "sinhalese": "si",
 }
 
 # Non-Latin scripts: the script itself names the language.
@@ -319,6 +319,7 @@ _SCRIPT_LANGUAGES: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("ar", re.compile(r"[\u0600-\u06ff]")),  # Arabic script
     ("he", re.compile(r"[\u0590-\u05ff]")),  # Hebrew
     ("hi", re.compile(r"[\u0900-\u097f]")),  # Devanagari
+    ("si", re.compile(r"[\u0d80-\u0dff]")),  # Sinhala
     ("th", re.compile(r"[\u0e00-\u0e7f]")),  # Thai
 )
 _ANY_LETTER_RE = re.compile(r"[^\W\d_]", re.UNICODE)

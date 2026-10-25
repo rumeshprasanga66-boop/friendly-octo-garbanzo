@@ -2260,6 +2260,18 @@ class UIConfig(BaseModel):
     # ("default" = OS default app, "browser", or an editor key like "code").
     # Empty = ask via the chooser dialog on first open. Desktop-only.
     preferred_opener: str = ""
+    # API rate limiting (dodaios/ui/web/rate_limit.py, docs/rate-limiting.md).
+    # ON by default: it protects this machine from a runaway local script or a
+    # stuck tab hammering an endpoint that spawns work. A person clicking in
+    # the UI never reaches these ceilings.
+    rate_limit_enabled: bool = True
+    # Requests per minute per client, per route class. "read" covers cheap
+    # GETs, "write" state changes, "expensive" anything that starts real work
+    # (a brain turn, a mission, a model download). A value below the module's
+    # floor is raised to it, so a typo cannot lock the user out.
+    rate_limit_read_per_minute: int = 600
+    rate_limit_write_per_minute: int = 120
+    rate_limit_expensive_per_minute: int = 30
 
     @field_validator("orb_style", mode="before")
     @classmethod

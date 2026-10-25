@@ -1609,6 +1609,7 @@ def _delegate_bridge_prompt(*, language: str, exact_text: str) -> str:
 
 _LANGUAGE_NAMES = {
     "de": "German", "en": "English", "es": "Spanish", "pt": "European Portuguese",
+    "si": "Sinhala",
 }
 
 _REALTIME_ENDING_SECTION_RE = re.compile(

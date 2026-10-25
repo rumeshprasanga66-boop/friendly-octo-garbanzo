@@ -51,6 +51,7 @@ OTHER_LANGUAGE_NAMES: dict[str, str] = {
     "pl": "Polish",
     "ro": "Romanian",
     "ru": "Russian",
+    "si": "Sinhala",
     "th": "Thai",
     "tr": "Turkish",
     "uk": "Ukrainian",
