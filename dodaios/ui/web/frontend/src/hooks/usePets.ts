@@ -11,11 +11,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { NO_PET_ID } from "@/lib/petStates";
 import {
   createPet,
+  createPetFromPhoto,
   deletePet,
   fetchPets,
   savePetSettings,
   selectPet,
   setPetVisible,
+  type CreatePetFromPhotoInput,
   type CreatePetInput,
   type Pet,
   type PetSettingsPatch,
@@ -116,6 +118,18 @@ export function useCreatePet() {
   const invalidate = useInvalidatePets();
   return useMutation({
     mutationFn: (input: CreatePetInput) => createPet(input),
+    onSuccess: invalidate,
+  });
+}
+
+/**
+ * Build a companion from a photograph. Shares the invalidation with
+ * `useCreatePet`, so the new pet appears in the grid the same way.
+ */
+export function useCreatePetFromPhoto() {
+  const invalidate = useInvalidatePets();
+  return useMutation({
+    mutationFn: (input: CreatePetFromPhotoInput) => createPetFromPhoto(input),
     onSuccess: invalidate,
   });
 }

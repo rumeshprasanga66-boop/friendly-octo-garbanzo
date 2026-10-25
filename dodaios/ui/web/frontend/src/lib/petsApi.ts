@@ -118,6 +118,29 @@ export function createPet(input: CreatePetInput): Promise<Pet> {
   return request<Pet>("/api/pets", { method: "POST", body: form });
 }
 
+export interface CreatePetFromPhotoInput {
+  photo: File;
+  name: string;
+  description: string;
+}
+
+/**
+ * Build a companion from a photograph.
+ *
+ * The backend crops the photo and draws it into a standard sheet, then stores
+ * it through the same path as `createPet`. The photo is processed locally and
+ * is never uploaded anywhere else. The result is a stylised portrait whose
+ * mouth follows the voice — not a photoreal talking head (see `docs/avatar.md`).
+ */
+export function createPetFromPhoto(input: CreatePetFromPhotoInput): Promise<Pet> {
+  const form = new FormData();
+  form.append("photo", input.photo);
+  form.append("name", input.name);
+  form.append("description", input.description);
+  // No content-type header: the browser writes the multipart boundary itself.
+  return request<Pet>("/api/pets/from-photo", { method: "POST", body: form });
+}
+
 export function deletePet(petId: string): Promise<unknown> {
   return request(`/api/pets/${encodeURIComponent(petId)}`, { method: "DELETE" });
 }

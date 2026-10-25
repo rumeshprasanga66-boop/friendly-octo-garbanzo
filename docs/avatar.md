@@ -23,7 +23,8 @@ speech level: the row is drawn closed → widest, and the frame is chosen from
 the smoothed output RMS (`level_tap.py` feeds it out of band, latency
 compensated). The builder therefore only has to produce a valid sprite sheet
 whose `talking` row runs from a closed mouth to an open one. Frame 0 is closed,
-the last frame is the widest, and the renderer interpolates between them.
+the last frame is the widest, and `level_frame` picks the frame whose index
+matches the smoothed level — the row is stepped through, not blended.
 
 ## Usage
 

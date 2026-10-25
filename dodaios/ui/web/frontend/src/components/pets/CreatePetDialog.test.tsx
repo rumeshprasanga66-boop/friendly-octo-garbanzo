@@ -138,3 +138,186 @@ describe("fieldForDetail", () => {
     expect(fieldForDetail("not a PNG")).toBe("sheet");
   });
 });
+
+describe("CreatePetDialog — from a photo", () => {
+  /** jsdom's Image never fires onload; stub the natural size the check reads. */
+  function stubImageSize(width: number, height: number) {
+    vi.stubGlobal(
+      "Image",
+      class {
+        naturalWidth = width;
+        naturalHeight = height;
+        onload: (() => void) | null = null;
+        onerror: (() => void) | null = null;
+        set src(_value: string) {
+          queueMicrotask(() => this.onload?.());
+        }
+      },
+    );
+  }
+
+  function jpeg(name = "me.jpg", bytes = 64): File {
+    return new File([new Uint8Array(bytes)], name, { type: "image/jpeg" });
+  }
+
+  function switchToPhoto() {
+    fireEvent.click(screen.getByTestId("create-pet-mode-photo"));
+  }
+
+  it("starts on the sprite-sheet mode", () => {
+    renderDialog();
+    expect(screen.getByTestId("create-pet-mode-sheet").getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByTestId("create-pet-mode-photo").getAttribute("aria-checked")).toBe("false");
+    // The sheet-only controls are the ones on screen.
+    expect(screen.getByTestId("create-pet-sheet")).toBeTruthy();
+    expect(screen.queryByTestId("create-pet-photo")).toBeNull();
+  });
+
+  it("shows the photo controls and hides the sheet controls when switched", () => {
+    renderDialog();
+    switchToPhoto();
+    expect(screen.getByTestId("create-pet-photo")).toBeTruthy();
+    expect(screen.queryByTestId("create-pet-sheet")).toBeNull();
+    expect(screen.queryByTestId("create-pet-manifest")).toBeNull();
+    // The layout explainer and template belong to the sheet mode.
+    expect(screen.queryByTestId("create-pet-rows")).toBeNull();
+    expect(screen.queryByTestId("create-pet-template")).toBeNull();
+  });
+
+  it("states plainly what a photo produces, and where it stays", () => {
+    renderDialog();
+    switchToPhoto();
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("stylised portrait whose mouth moves with the voice");
+    expect(text).toContain("not a photorealistic talking head");
+    expect(text).toContain("Your photo stays on this computer.");
+  });
+
+  it("refuses a file that is not an image before uploading anything", () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    renderDialog();
+    switchToPhoto();
+
+    fireEvent.change(screen.getByTestId("create-pet-photo"), {
+      target: { files: [new File(["x"], "notes.txt", { type: "text/plain" })] },
+    });
+
+    expect(screen.getByRole("alert").textContent).toBe("Choose a PNG or JPEG image.");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("refuses a photo over 4 MB", () => {
+    renderDialog();
+    switchToPhoto();
+    fireEvent.change(screen.getByTestId("create-pet-photo"), {
+      target: { files: [jpeg("big.jpg", 4 * 1024 * 1024 + 1)] },
+    });
+    expect(screen.getByRole("alert").textContent).toBe("This photo is larger than 4 MB.");
+  });
+
+  it("refuses a photo too small to yield a 48 px frame", async () => {
+    stubImageSize(120, 120);
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    renderDialog();
+    switchToPhoto();
+
+    fireEvent.change(screen.getByTestId("create-pet-photo"), { target: { files: [jpeg()] } });
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toBe(
+      "This photo is too small. Choose one at least 192 × 192 pixels.",
+    );
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("accepts a photo at the minimum size", async () => {
+    stubImageSize(192, 192);
+    renderDialog();
+    switchToPhoto();
+    fireEvent.change(screen.getByTestId("create-pet-photo"), { target: { files: [jpeg()] } });
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+  });
+
+  it("asks for a name before uploading a photo", async () => {
+    stubImageSize(600, 800);
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    renderDialog();
+    switchToPhoto();
+    fireEvent.change(screen.getByTestId("create-pet-photo"), { target: { files: [jpeg()] } });
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+
+    fireEvent.click(screen.getByTestId("create-pet-submit"));
+
+    expect(screen.getByRole("alert").textContent).toBe("Give your pet a name.");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("posts the photo to /api/pets/from-photo and hands the new pet back", async () => {
+    stubImageSize(600, 800);
+    const created = {
+      id: "u39f75477602e2586",
+      name: "Kasun",
+      description: "From my photo.",
+      builtin: false,
+      frame_size: 48,
+      animations: {},
+      sheet_url: "/api/pets/u39f75477602e2586/sheet.png",
+    };
+    const fetchSpy = vi.fn(async () => ({ ok: true, status: 201, json: async () => created }));
+    vi.stubGlobal("fetch", fetchSpy);
+    const onCreated = renderDialog();
+
+    fireEvent.change(screen.getByTestId("create-pet-name"), { target: { value: "Kasun" } });
+    fireEvent.change(screen.getByTestId("create-pet-description"), {
+      target: { value: "From my photo." },
+    });
+    switchToPhoto();
+    fireEvent.change(screen.getByTestId("create-pet-photo"), { target: { files: [jpeg()] } });
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+
+    fireEvent.click(screen.getByTestId("create-pet-submit"));
+
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith(created));
+    const [url, init] = fetchSpy.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("/api/pets/from-photo");
+    expect(init.method).toBe("POST");
+    const form = init.body as FormData;
+    expect(form.get("name")).toBe("Kasun");
+    expect(form.get("description")).toBe("From my photo.");
+    expect(form.get("photo")).toBeInstanceOf(File);
+    // The photo route takes no frame size or manifest.
+    expect(form.get("frame_size")).toBeNull();
+    expect(form.get("manifest")).toBeNull();
+  });
+
+  it("shows the server's refusal at the photo field", async () => {
+    stubImageSize(600, 800);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: false,
+        status: 400,
+        json: async () => ({ detail: "the photo is too small to build a 48 px frame" }),
+      })),
+    );
+    renderDialog();
+
+    fireEvent.change(screen.getByTestId("create-pet-name"), { target: { value: "Kasun" } });
+    switchToPhoto();
+    fireEvent.change(screen.getByTestId("create-pet-photo"), { target: { files: [jpeg()] } });
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+
+    fireEvent.click(screen.getByTestId("create-pet-submit"));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("too small");
+    expect(alert.id).toContain("photo");
+  });
+
+  it("routes a refusal to the photo field when the detail names the photo", () => {
+    expect(fieldForDetail("photo: not a PNG or JPEG")).toBe("photo");
+  });
+});
